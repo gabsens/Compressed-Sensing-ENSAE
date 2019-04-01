@@ -1,0 +1,289 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+
+\title{Compressed sensing}
+\author{Julien CHHOR et Gabriel ROMON}
+\date{March 2019}
+
+%\documentclass[12pt,a4paper]{article} 
+\usepackage{amsmath}
+\newcommand\norm[1]{\left\lVert#1\right\rVert}
+\def\R{\textrm{I\kern-0.21emR}}
+
+
+\usepackage{amsthm}
+
+\usepackage{amsthm, amssymb}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+
+\theoremstyle{lemma}
+\newtheorem{lemma}{Lemma}[section]
+
+\theoremstyle{theorem}
+\newtheorem{theorem}{Theorem}[section]
+\usepackage{geometry}
+\geometry{total={210mm,297mm},
+left=30mm,right=30mm,%
+bindingoffset=0mm, top=30mm,bottom=30mm}
+
+
+\DeclareMathOperator*{\data}{\text{data}}
+\DeclareMathOperator*{\kl}{\text{KL}}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\jsd}{\text{JSD}}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+The article aims at solving the classical compressed sensing problem: reconstruct an $\textbf{image}$ vector $x^*$ given a vector $y = Ax^* + \eta,  A \in \R^{m \times n}, m \ll n$ of linear noisy measures of $x^*$. The article proposes to use generative models based on neural networks to circumvent the standard approaches based on sparsity. The idea is to estimate $x^*$ as the best image $G(z)$ a generative model can generate given the measurement $y$. 
+
+\section{Setup}
+More precisely, we are given a measurement matrix $A \in \R^{m \times n}$ and a generative model, which is a function $G : \R^k \rightarrow \R^n, k \ll n$. $G$ is determined by training a neural network on a set of image data, and associates an image $G(z) \in \R^n$ to any parameter $z$ in the low-dimensional space $\R^k$. We observe a noisy measurement $y = Ax^* + \eta$ of the true image $x^*$. The idea of this article is to propose as an estimate of $x^*$, the best image $G(z)$ that the model can generate, by minimizing the new criterion $\norm{AG(z) - y}_2^2$ over $z \in \R^k$. In other words, this allows to approximate the closest possible point to $x^*$ in the range of $G$.
+
+The algorithm simply consists in minimizing the loss $\norm{AG(z) - y}_2^2$ to find a terminal point $\hat{z}$ to the procedure. The estimate for $x^*$ is then defined as $\hat{x} = G(\hat{z})$. This criterion is not convex, but a gradient descent method seems to give good empirical results. Indeed, for a small number of measurements, this method outperforms LASSO under the assumption that the measurement matrix satisfies some conditions called S-REC (Set-Restricted Eigenvalue Condition).
+
+
+Before giving theoretical results to justify that approach, we first begin with a review of the generative models used in the paper.
+
+\subsection{Generative models}
+
+Suppose we are dealing with data points that belong to the \textit{data space} $\mathbb R^n$ (also referred to as the \textit{sample space}). A generative model $G:\mathbb R^k \to \mathbb R^n$ is a deterministic function that returns a point in the sample space given an input which belongs to the \textit{latent space} $\mathbb R^k$ (also referred to as the \textit{representation space}). Usually, $k\ll n$, so a model that successfully learnt to generate data points is expected to have created a compressed representation of the original data.\\
+\\
+Let $p_{\data}$ denote the unknown data-generating distribution. The goal of generative modelling is to train a model that induces a distribution $p_G$ on the data space such that $p_G$ is similar to $p_{\data}$. Probability distributions can be formally compared by using $f$-divergences or integral probability metrics.
+
+Let $\theta$ be the parameter vector learnt by the model and assume that $p_{\data}$ and $p_\theta$ are absolutely continuous with respect to the same measure $\mu$ (for example Lebesgue measure on $\mathbb R^d$ or a counting measure), with densities $q_{\data}$ and $q_\theta$. Let $f:\mathbb R \to \mathbb R$ a convex function with $f(1)=0$. The \textit{$f$-divergence} between $p_{\data}$ and $p_\theta$ is defined as $$D_f(p_{\data}||p_\theta):= \int  f\left(\frac{q_{\data}(x)}{q_\theta(x)}\right) q_\theta(x) d\mu(x)$$
+Note that $D_f$ may not be symmetric and the triangle inequality may not hold, hence the name divergence instead of distance. However, $f$-divergences satisfy the positivity property: $D_f(p_{\data}||p_\theta) = 0 \iff p_{\data}=p_\theta$.
+Popular instances include the Kullback-Leibler divergence ($f:t\mapsto t\log t$), the Hellinger distance ($f:t\mapsto \frac 12 (\sqrt t -1)^2$) and the total variation distance ($f:t\mapsto \frac 12 |t-1|$).
+
+\textit{Integral probability metrics} (IPMs) are defined by 
+$$d_{\mathcal F}(p_{\data}||p_\theta) := \sup_{f\in \mathcal F}\; E_{x\sim p_{\data}}[f(x)] - E_{x\sim p_\theta}[f(x)]$$
+where $\mathcal F$ is a class of functions from $\mathbb R^n$ to $\mathbb R$. Note that IPMs are easier to define since they not require density assumptions on the probability distributions. Furthermore, if $f\in \mathcal F \implies -f\in \mathcal F$, then $d_\mathcal F$ is symmetric and satisfies the triangle inequality. Popular instances include the Wasserstein-1 distance\newline ($\mathcal F = \{\text{1-Lipschitz functions}\}$), the total variation distance ($\mathcal F = \{\text{bounded functions with values in }[-1,1]\}$, which is therefore at the intersection between IPMs and $f$-divergences) and the Maximum Mean Discrepancy ($\mathcal F = \{\text{unit ball of an RKHS}\}$).
+\\ \\
+The most well-known generative models based on neural networks are variational autoencoders and generative adversarial networks.
+
+
+\subsection{Variational AutoEncoders}
+
+Variational autoencoders (VAEs) aim at learning $\theta$ to minimize $$\kl(p_{\data}||p_{\theta}) = E_{x\sim p_{\data}}(\log p_{\data}(x)) - E_{x\sim p_{\data}}(\log p_\theta(x))$$
+Since $E_{x\sim p_{\data}}(\log p_{\data}(x))$ is independent of $\theta$, minimizing $\kl(p_{\data}||p_{\theta})$ is equivalent to maximizing the likelihood $E_{x\sim p_{\data}}(\log p_\theta(x))$. However computing $\log p_\theta(x)$ is not tractable, so a first step is to introduce a latent variable $z$ and the joint distribution is decomposed as $p_\theta(x, z) = p_\theta(x|z) p(z)$ where $p(z)$ is a fixed prior and $p_\theta(x|z)$ is a simple distribution whose parameters are the output of a neural network. The second step is to define another distribution $q_{\phi}(z|x)$ which will also be modelled by a neural network. Next, note that 
+$$\begin{aligned}
+  \log p_\theta(x) &= \mathbb{E}_{z \sim q_\phi} \log p_\theta(x) = \mathbb{E}_{z \sim q_\phi} \left[ \log p_\theta(x) \frac {q_\phi(z|x)}{q_\phi(z|x)} \right] \\
+  &= \mathbb{E}_{z \sim q_\phi} \left[ \log\left[\frac{p_\theta(x|z) p(z)}{p_\theta(z|x)} \right] \frac {q_\phi(z|x)}{q_\phi(z|x)} \right]\\
+  &= \kl(q_\phi(z|x)||p_\theta(z|x)) - \kl(q_\phi(z|x)||p(z)) + \mathbb{E}_{z \sim q_\phi}(\log p_\theta(x|z))\\
+  &\geq - \kl(q_\phi(z|x)||p(z)) + \mathbb{E}_{z \sim q_\phi}(\log p_\theta(x|z))
+\end{aligned}$$
+This lower bound on $\log p_\theta(x)$ is computationally tractable and provides an objective function that we can maximize. It is known as the Evidence Lower-Bound (ELBO) in the literature. The VAE loss thus writes as $$\mathcal L_{\text{VAE}} = \kl(q_\phi(z|x)||p(z)) - \mathbb{E}_{z \sim q_\phi}(\log p_\theta(x|z)) $$
+$q_\phi(z|x)$ can be seen as a \textit{probabilistic encoder} from the data $x$ to the latent space $z$, and $p_\theta(x|z)$ can be seen as a \textit{probabilistic decoder} from the latent space $z$ to the data $x$. Remember that the objective is to use gradient descent to learn the parameters $\theta$ and $\phi$.
+\hfill \\ \\
+Let us give more details on the structure of a VAE applied to the MNIST dataset, as done in the paper. The encoder is assumed to follow $\mathcal N_k(\mu, \text{diag}(\Sigma_{11},\ldots, \Sigma_{kk}))$ where the mean vector $\mu$ and the diagonal covariance matrix are outputs of the neural network corresponding to the encoder. Since the images are represented by black and white pixels, the decoder is assumed to follow a random vector with coordinates $\mathcal B(y_i)$ where the vector $y$ is learnt by the neural network corresponding to the decoder. Lastly, the prior on $z$ is assumed to be $\mathcal N_k(0, I_k)$. In this setting, we get 
+$$\kl(q_\phi(z|x)||p(z)) = \frac 12 \sum_{i=1}^k \left(\exp \log \Sigma_{ii} - \log \Sigma_{ii} + \mu_i^2 - 1 \right)$$
+If we assume further that the individual pixels of the output of the decoder are independent, each one following $\mathcal B(y_i)$, we get
+$$\log p_\theta(x|z) = \sum_{i=1}^n x_i \log y_i + (1-x_i) \log(1-y_i) $$
+Writing down these expressions in a deep learning framework such as Tensorflow or Pytorch allows us to train a VAE on MNIST.
+
+\subsection{Generative Adversarial Networks}
+\textit{Generative adversarial networks} (GANs) are made up of two separate networks: a \textit{generator} $G$ which induces a distribution $p_\theta$ on the sample space and a \textit{discriminator} $D$ which acts as a classifier. The discriminator is trained to differentiate between samples from the dataset and samples generated through $p_\theta$. The loss of the standard GAN introduced in 2014 by Goodfellow writes as 
+$$\min_G \max_D E_{x\sim p_{\data}}(\log D(x)) +  E_{x\sim p_{\theta}}(\log[1-D(x)])$$
+For a fixed generator, it is easy to show that the optimal discriminator is $\displaystyle D^*(x) = \frac{p_{\data}(x)}{p_\theta(x) + p_{\data}(x)}$. For this $D^*$, the loss turns into $$\min_G \left[ 2\jsd(p_\theta \| p_{\data})  - 2\log 2 \right]$$
+where $\jsd$ is the Jensen-Shannon divergence, a symmetric version of the Kullback-Leibler divergence. Thus training the generator to minimize the loss is equivalent to minimizing the $\jsd$ between $p_\theta$ and $p_{\data}$.\\
+\\
+GANs are easier to formulate compared to VAEs. However, they are also more difficult to train. Assuming that the discriminator has been trained to optimality, one is tempted to perform gradient steps on $\theta$, however this does not work. In practice, as the discriminator gets better, the updates to the generator get worse. In his seminal paper Goodfellow indicates that when the generator is poor, the discriminator can reject samples with high confidence, thus the term $\mathbb{E}_{x \sim p_\theta} \left[ -\log \left(1-D(x)\right) \right]$ is almost $0$, so the gradient vanishes, hence the generator cannot improve. Besides, the loss only returns feedback on the quality of the outputs of the generator, regardless of their diversity (representativeness of the real data). A generator could thus return the exact same high-quality sample and get very low loss. This is usually referred to as \textit{mode collapse}. \\
+\\
+Over the years, researchers have come up with other loss that provide more training stability (Wasserstein-1 for example)
+
+\subsection{Applications in the paper}
+In the paper the authors do not put much emphasis on the architectures and the training of their generative models. They simply use common versions of VAEs and GANs, so we did the same in our experiments (see the notebook).
+
+\newpage
+\section{Theoretical Results}
+To ensure good reconstruction with high probability, a technical assumption on the measurement matrix $A$ is needed, called the Set-Restricted Eigenvalue Condition.
+
+\begin{definition} (Set-Restricted Eigenvalue Condition)
+Let $S \in \R^n$. For some parameters $\gamma > 0$, $\delta \geq 0$ a matrix $A \in \R^{m \times n}$ is said to satisfy the S-REC conditions $S-REC(S,\gamma,\delta)$ if $\forall x_1, x_2 \in S$, 
+$\norm{A(x_1 - x_2)} \geq \norm{x_1 - x_2} - \delta$.
+\end{definition}
+
+This condition is close to the more classical REC condition, which is a sufficient condition for robust recovery by LASSO:
+
+\begin{definition}
+$A$ satisfies REC for a constant $\gamma >0$ if for all approximately sparse vectors $x, \norm{Ax} \geq \gamma \norm{x}$.
+\end{definition}
+
+The main difference between both is that S-REC condition applies to vectors in a set $S$, and isn't restricted to sparse vectors. The idea is to apply this condition to $S = G(\R^k)$, the set of images which can be generated by a generative model. 
+
+
+For random Gaussian matrices, the S-REC conditions are ensured with high probability for large classes of generators: indeed, the article is to shows that in the case of d-layer neural-nets, taking $m=0(kd\log(n))$ is sufficient to ensure the S-REC condition and to guarantee good reconstruction with high probability. In the following three lemmas, the matrix $A$ will denote a Gaussian matrix generated according to $\forall i,j, A_{ij} \thicksim N(0, \frac{1}{m})$ 
+
+
+The first lemma gives a sufficient condition to guarantee the S-REC in the case of a Lipschitz generative model:
+
+\begin{lemma}
+Let $G : \R^k \rightarrow \R^n$ $L$-Lipschitz. Let $\alpha, r > 0$ and $$B^k(r) = \{ z \in \R^k | \norm{z} < r \}$$
+If $m = \Omega(\frac{k}{\alpha^2} \log(\frac{Lr}{\delta}))$ and , then A satisfies $S-REC(G(B^k(r)), 1-\alpha, \delta)$ wp  $ \geq 1 - e^{- \Omega(\alpha^2 m)}$  
+\end{lemma}
+
+This lemma is well suited for our setting since it is easily shown that the function $G$ is Lipschitz in the case of a Neural Network.
+
+
+\begin{lemma}
+Let $G : \R^k \rightarrow \R^n$ be a neural network with $d$ layers, where each layer is a linear transformation followed by a pointwise non-linearity. Suppose there are at most $c$ nodes per layer, and the non-linearities are piecewise linear with at most two pieces. Let $m = O(\frac{1}{\alpha^2} kd \log(c))$ for some $\alpha <1$. Then $A$ satisfies $S-REC(G(\R^k), 1-\alpha, 0)$ wp  $ \geq 1 - e^{- \Omega(\alpha^2 m)}$  
+
+\end{lemma}
+
+
+\begin{lemma}
+Let $A$ be drawn from a distribution that satisfies the $S-REC(S,\gamma, \delta)$ with probability $\geq 1-p$ and such that for every fixed $x \in \R^n, \norm{Ax} \leq 2 \norm{x}$, with probability $1-p$. For any $x^* \in \R^n$ and noise $\eta$ let $y = Ax^* + \eta$. Let $\hat{x}$ approximately minimizing $\norm{y - Ax}$ over $x \in S$, ie:
+
+$$ \norm{y - A\hat{x} } \leq \min_{x  \in S} \norm{y - Ax} + \epsilon$$.
+
+Then, $\norm{\hat{x} - x^*} \leq (\frac{4}{\gamma} +1) \min_{x \in S} \norm{x - x^*} + \frac{1}{\gamma}(2\norm{\eta} + \epsilon + \delta)$ with probability 1-2p
+\end{lemma}
+
+These three lemmas allow to prove the following two theorems, which are this article's key contributions.
+
+\begin{theorem}
+Let $G : \R^k \rightarrow \R^n$ be a generative model from a $d$-layer neural network using ReLU activations. Let $A \in \R^{m \times n}$ be a random Gaussian matrix for $m = O(kd \log(n)$, scaled so that $\forall i,j, A_{ij} \thicksim N(0, \frac{1}{m})$. For any $x^* \in \R^n$ and any observation $y = Ax^* + \eta$, let $\hat{z}$ minimize $\norm{y - AG(z)}_2$ to within additive $\epsilon$  of the optimum. Then with $1-e^{-\Omega(m)}$ probability, 
+
+$$ \norm{G(\hat{z}) - x^*} \leq 6 \min_{z^* \in \R^k} \norm{G(z^*) - x^*}_2 +3\norm{\eta}_2 + 2\epsilon$$
+\end{theorem}
+
+\begin{theorem}
+ $G : \R^k \rightarrow \R^n$ be an $L$-Lipschitz function. Let $A \in \R^{m \times n}$ be a random Gaussian matrix for $m = O(k \log \frac{Lr}{\delta})$, scaled so that $\forall i,j, A_{ij} \thicksim N(0, \frac{1}{m})$. For any $x^* \in \R^n$ and any observation $y = Ax^* + \eta$, let $\hat{z}$ minimize $\norm{y - AG(z)}_2$ to within additive $\epsilon$ of the optimum over vectors with $\norm{\hat{z}}_2 \leq r$. Then with probability $1 - e^{- \Omega(m)}$
+ 
+ $$ \norm{G(\hat{z}) - x^*} \leq 6 \min_{z^* \in \R^k, \norm{z^*}_2 \leq r} \norm{G(z^*) - x^*}_2 +3\norm{\eta}_2 + 2\epsilon + 2\delta$$
+ 
+\end{theorem}
+
+
+
+\section{Experiments}
+
+The authors use two image datasets (MNIST and CelebA) and two kinds of generative models: VAEs and GANs. The results of the article are stated for $ \hat{z} = \argmin \norm{y - AG(z)}_2$, but in their experiments, they suddenly use $ \hat{z} = \argmin \norm{y - AG(z)}_2^2 + \lambda \norm{z}^2$, which arguably weakens the theoretical guarantees they provide at the beginning.
+
+They apply their method to both data sets and compare their performances to the baseline LASSO method, by comparing the criterion $\norm{x^* - \hat{x}}^2$ for each method.
+
+Please see the notebook for our attempt at reproducing their results.
+
+\subsection{Comparison on MNIST}
+The method developed in this article, applied to MNIST, gives significantly better results than LASSO using significantly fewer measures (25 versus 400 for LASSO). However, the method is limited since its output is constrained to be in the range of the generator. Therefore it quickly saturates, and additional measurements give no additional improvement, whereas the LASSO's performance isn't limited and keeps increasing, eventually outperforming this algorithm.
+
+Indeed, the performance of this method is necessarily bounded below by the minimal distance of $x^*$ to its closest point on the range of $G$, since the algorithm's output must be of the form $G(z)$. Therefore it induces a large systematic error. The authors suggest to use a better generative model, able to fit a wider range of images, to remedy this drawback.
+
+\subsection{Comparison on CelebA}
+For 500 measurements, the result is quite convincing: the method obtains good results whereas the LASSO's output is quite blurry. The same saturation phenomenon occurs for 5000 measurements.
+
+\subsection{Sources of error}
+The sources of errors seem threefold.
+\begin{itemize}
+    \item Representation error: the actual image is far from $G(\R^k)$
+    \item Measurement error: a finite number of measurements do not contain all the information about the unknown image
+    \item Optimization error: the optimum found is a local optimum far from the global one.
+\end{itemize}
+
+The authors suggest that the dominant term is the representation error and that the residual two errors are actually very small, which would be extremely advantageous for the method they propose. Indeed, it would mean that training more accurate generative models would allow to considerably reduce the systematic error, leading to performances much better than those based on sparsity, with much fewer measurements.
+To assess the contribution of each source, they propose two experiments:
+\begin{itemize}
+    \item A first one where the representation error is zero, to estimate the sum of the other two errors. FOr this one, they choose an image $x^*$ which is of the form $x^* = G(z)$, and find excellent results for the reconstruction, even with a very small number of measurements.
+    \item A second one, they apply their method on both data sets, with $A = Id$, meaning that no measurement error is introduced by A. Then, they compare the performance on this particular model to the performance on the mode general model $y = Ax^* + \eta$ and they find that the errors are quite similar. This suggests that the representation error is the major component of the total error.
+\end{itemize}
+
+
+\section{Proofs}
+
+In this section we only provide proofs for Lemma 1 and Lemma 3.
+
+\subsection{Proof of lemma 1}
+\begin{lemma}
+If a matrix $A$ satisfies $S-REC(S,\gamma,\delta)$ then $\forall x_1, x_2 \in S$ such that $\norm{Ax_1 - y} \leq \epsilon_1$ and $\norm{Ax_2 - y} \leq \epsilon_2$, we have $ \norm{x_1 - x_2} \leq \frac{\epsilon_1 + \epsilon_2 + \delta}{\gamma}$
+\end{lemma}
+
+$Proof: \norm{x_1 - x_2} \leq \frac{1}{\gamma}(\norm{Ax_1 - Ax_2} + \delta) \leq \frac{1}{\gamma}(\norm{Ax_1 - y} + \norm{ Ax_2 - y} + \delta) \leq \frac{\epsilon_1 + \epsilon_2 + \delta}{\gamma} $
+\hfill \\\\
+\begin{lemma}
+Let $G : \R^k \rightarrow \R^n$ be $L$-Lipschitz, $M$ a $\frac{\delta}{L}$-net on $B^k(r)$ such that $|M| \leq k \log(\frac{4Lr}{\delta})$. Let $A \in \R^{m \times n}$ such that $\forall (i,j), A_{ij} \thicksim N(0, \frac{1}{m})$. If $m=O(k \log(\frac{Lr}{\delta}))$ then for any $x\in S$, if $x' = \argmin_{\tilde{x \in G(M)}} \norm{x - \tilde{x}}$, we have $\norm{A(x-x')} = O(\delta)$ with probability $1 - e^{-\Omega(m)}$.
+\end{lemma}
+
+$Proof$: Since $\frac{\norm{Ax}^2}{\norm{x}^2}$ is subgamma$(\frac{1}{\sqrt{m}}, \frac{1}{m})$, then for $f>0$, 
+
+$$ \epsilon \geq 2 + \frac{4}{m} \log \frac{2}{f} \geq max( \sqrt{\frac{2}{m} \log \frac{2}{f}}, \frac{2}{m} \log \frac{2}{f})$$ which yields $P(\norm{Ax} \geq (1+\epsilon)\norm{x}) \leq f$
+\\ \\
+Let $M = M_0 \subset ... \subset M_t$ be a chain of epsilon nets of $B^k(r)$ such that $M_i$ is a $\delta_i/L$-net and $\delta_i = \frac{\delta_0}{2^i}$, $\delta_0 = \delta$.  We know that there exist nets such that $\log |M_i| \leq k \log(\frac{4Lr}{\delta_i}) \leq ik + k \log(\frac{4Lr}{\delta_0}) $.\newline
+Let $N_i = G(M_i)$. $G$ is $L$-Lipschitz, so $N_i$ is a $\delta_i$-net for $S = G(B^k(r))$, with $|N_i| = |M_i|$. For $1 \leq i \leq l-1$ we define $T_i := \{ x_{i+1} - x_i | x_{i+1} \in N_{i+1}, x_i \in N_i\}$
+
+Thus $|T_i| \leq | N_{i+1}||N_i| $ hence $\log |T_i| \leq \log | N_{i+1}| + \log |N_i| \leq (2i+1)k + 2k \log (\frac{4LR}{\delta_0}) \leq 3ik + 2k \log (\frac{4Lr}{\delta_0})$.
+
+Moreover, we assume $m = 3k \log (\frac{4Lr}{\delta_0}, log(f_i) = -(m + 4ik)$ and $\epsilon_i = 2 + \frac{4}{m} \log \frac{2}{f_i} = 2 + \frac{4}{m} \log 2 + 4 + \frac{16ik}{m} = 0(1) + \frac{16 ik}{m}$.
+
+Then we have $\forall i \in \{ 1, ..., l-1 \}, \forall t \in T_i, P(\norm{At > (1+\epsilon_i)\norm{t}}) \leq f_i$, which yields $P(\norm{At \leq (1+\epsilon_i)\norm{t}} \forall i, \forall t \in T_i) \geq 1 - \sum_{i=0}^{t-1} |T_i| f_i$.
+
+Now, 
+
+$$ \log (|T_i|f_i) = \log|T_i| + \log|f_i| \leq -k \log (\frac{4Lr}{\delta_0}) - ik = -m/3 - ik$$
+
+Hence $ \sum_{i=0}^{t-1} |T_i| f_i \leq e^{-m/3}  \sum_{i=0}^{t-1} e^{-ik} \leq e^{-m/3}(\frac{1}{1-e^-1}) \leq 2e^{-m/3}$
+
+Let's define $x_f = x - x_l$, then $x-x_0 = \sum_{i=0}^{l-1} (x_{i+1} - x_i) + x_f$, with $x_i \in N_i$
+
+Since each $x_{i+1} - x_i \in T_i$we have with probability at least $1-2e^{-m/3}$:
+
+$$ \sum_{i=0}^{l-1} \norm{A(x_{i+1} - x_i)} = \sum_{i=0}^{l-1} (1+\epsilon_i)\norm{(x_{i+1} - x_i)} \leq \sum_{i=0}^{l-1} (1+\epsilon_i)\delta_i  = \delta_0 \sum_{i=0}^{l-1} \frac{1}{2^i}(O(1) + \frac{16ik}{m}) = O(\delta_0) + \delta_0\frac{16k}{m} \sum_{i=0}^{l-1} \frac{i}{2^i} + O(\delta_0)$$.
+
+Now, $\norm{x_f} = \norm{x-x_l} \leq d_l = \frac{\delta_0}{2^l}$, and $\norm{x_{i+1} - x_i} \leq \delta_i$ due to the properties of epsilon-nets. We know that $\norm{A} \leq 2 + \sqrt{n/m}$ with probability at least $1 - 2 e^{-m/2}$. By setting $l = \log(n)$, we get that $\norm{A} \norm{x_f} \leq (2 + \sqrt{n/m})\frac{\delta_0}{2^i} = O(\delta_0) $ with probability $\geq 1 - 2e^{-m/2}.$
+
+Combining these two results, and noting that it is possible to choose $x' = x_0$, we get that with probability $1 - e^{-\Omega(m)}$,
+$$ \norm{ A(x-x')} = \norm{ A(x-x_0)} \leq \sum_{i=0}^{l-1} \norm{ A(x_{i+1}-x_i)} + \norm{Ax_f} = O(\delta_0) + \norm{A} \norm{x_f} = O(\delta)$$ which ends the proof.
+
+
+
+\begin{lemma}
+Let $G : \R^k \rightarrow \R^n$, L-Lipschitz. If $m = \Omega(\frac{k}{\alpha^2} \log \frac{Lr}{\delta}))$, then $A$ satisfies the $S-REC(B^k (r), 1-\alpha, \delta$ with $1-e^{-\Omega(\alpha^2 m)}$ probability.
+
+\end{lemma}
+
+$Proof.$ We construct a $\frac{\delta}{L}$-net N on $B^k(r)$. THere exists a net such that  $ log|N| \leq k \log \frac{4Lr}{\delta}$.
+
+Since $N$ is a $\frac{\delta}{L}$-cover of $B^k(r)$, due to the $L$-Lipschitz property of $G$, we get that $G(N)$ is a $\delta$-cover of $G(B^k(r))$. Let $T$ denote the pairwise differences between the elements in $G(N)$, i.e. 
+
+$$ T = \{ G(z_1) - G(z_2) | z_1,z_2 \in N\}$$
+
+Then $|T| \leq |N|^2 \Rightarrow log|T| \leq 2 \log |N| \leq 2k\log \frac{4Lr}{\delta}$.
+
+For any $z,z' \in B^k, \exists z_1, z_2 \in N; G(z_1), G(z_2)$ are $\delta$-close to $G(z)$ and $G(z')$ respectively. Thus :
+
+$$ \norm{ G(z)- G(z')} \leq \norm{ G(z)- G(z_1)} + \norm{ G(z_1)- G(z_2)} + \norm{ G(z_2)- G(z')} \leq \norm{ G(z_1)- G(z_2)} + 2\delta$$
+
+
+$$ \norm{ AG(z_1)- AG(z_2)} \leq \norm{ AG(z_1)- AG(z)} + \norm{ AG(z)- AG(z')} + \norm{ AG(z')- AG(z_2)}$$
+
+Now by the previous lemma, with probability $1 - e^{-\Omega(m)}, \norm{ AG(z_1)- AG(z)} = O(\delta)$ and $\norm{ AG(z')- AG(z_2)} = O(\delta)$, thus $\norm{ AG(z_1)- AG(z_2)} =\norm{ AG(z)- AG(z')} + O(\delta)$.
+
+By the Johnson-Lindenstrauss Lemma, for a fixed $x \in \mathbb R^n, P(\|Ax\|^2 < (1-\alpha) \|x\|^2) < e^{- \alpha^2 m}$.
+Therefore, we can union bound over all vectors in $T$ to get
+
+$$ P(\norm{Ax}^2 \geq (1-\alpha) \norm{x}^2 \forall x \in T) \geq 1 - e^{-\Omega(\alpha^2 m)}$$
+
+Since $\alpha < 1$ and $z_1, z_2 \in N, G(z_1) - G(z_2) \in T$, we have
+
+$$ (1-\alpha) \norm{G(z_1) - G(z_2)} \leq \sqrt{1-\alpha} \norm{G(z_1) - G(z_2)} \leq \norm{AG(z_1) - AG(z_2)} $$
+
+Combining the three results above we get that with probability $1 - e^{-\Omega(\alpha^2 m)}$
+$$ (1-\alpha)\norm{G(z) - G(z')} \leq (1-\alpha) \norm{G(z_1) - G(z_2)}  + 0(\delta) \leq \norm{AG(z_1) - AG(z_2)} + 0(\delta)  \leq \norm{AG(z) - AG(z')} + 0(\delta)$$
+
+Thus $A$ satisfies $S-REC(S,1-\alpha, \delta)$ with probability $1 - e^{-\Omega(\alpha^2 m)}$.
+
+\subsection{Proof to lemma 3}
+Let $\Bar{x} = argmin_{x \in S} \norm{x - x^*}$. Then we have by Lemma 5.1 and the hypothesis on $\hat{x}$ that 
+
+$$ \norm{\Bar{x} - \hat{x}} \leq \frac{\norm{A\bar{x} - y} + \norm{A\hat{x} - y} + \delta}{\gamma} \leq \frac{
+2\norm{A\bar{x} - y} + \epsilon + \delta}{\gamma} \ leq \frac{2\norm{A(\bar{x} - x^*)} + 2\norm{\eta} \epsilon + \delta}{\gamma} $$
+
+as long as $A$ satisfies the S-REC, which happens with probability $1-p$.  Now, since $x$ and $x^*$ are independent of $A$, by assumption we also have $\norm{A(\bar{x} - x^*) } \leq 2 \norm{\bar{x} - x^*}$ with probability $1-p$. Therefore 
+
+$$\norm{\hat{x} - x^*} \leq \norm{\bar{x} - x^*} + \frac{4 \norm{\hat{x} - x^*2\norm{\eta} \epsilon + \delta}}{\gamma}$$
+which ends the proof.
+
+\end{document}

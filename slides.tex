@@ -1,0 +1,340 @@
+\documentclass{beamer}
+\usepackage[utf8]{inputenc}
+
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{verbatim} 
+
+
+\def\R{\textrm{I\kern-0.21emR}}
+
+\usepackage{amsthm, amssymb}
+
+
+\DeclareMathOperator*{\data}{\text{data}}
+\DeclareMathOperator*{\kl}{\text{KL}}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\jsd}{\text{JSD}}
+
+
+
+\newcommand{\norm}[1]{\left\Vert #1\right\Vert}
+
+\AtBeginSection[]
+  {
+    \ifnum \value{framenumber}>1
+      \begin{frame}<beamer>
+      \frametitle{Sommaire}
+      \tableofcontents[currentsection]
+      \end{frame}
+    \else
+    \fi
+  }
+
+\title{Compressed sensing using Generative Models
+}
+\author{Julien Chhor, Gabriel Romon}
+
+\date{1er avril 2019}
+
+
+\begin{document}
+
+\maketitle
+
+\begin{frame}{Introduction}
+    Article: Bora et al. \textit{Compressed Sensing using Generative Models}
+    \vspace{2em}
+    
+    Problème : Étant donné $y = Ax^* + \eta$ et $A$, retrouver $x^*$.  
+    
+    \vspace{2em}
+
+    Approche classiques : 
+    
+    \begin{itemize}
+        \item chercher $\displaystyle \argmin_{Ax = y} \norm{x}_0 $
+        \item Relaxation convexe : $\displaystyle \argmin_{Ax = y} \norm{x}_1 $ (\textit{Basis pursuit})
+    \end{itemize}
+    
+    \vspace{2em}
+    
+    Ici, $x^*$ est une \textbf{image}. On propose d'utiliser des modèles génératifs pour estimer $x^*$.
+    
+\end{frame}
+
+\begin{comment}
+\begin{frame}{Sommaire}
+
+\begin{enumerate}[label = \Roman*]
+    \item VAE, GAN \vspace{2em}
+    \item Résultats théoriques  \vspace{2em}
+    \item Expériences  \vspace{2em}
+\end{enumerate}
+\end{frame}
+\end{comment}
+
+
+\section{VAE, GAN}
+
+\begin{frame}{\secname}
+Modèle génératif: $G:\mathbb R^k \to \mathbb R^n$ avec $k\ll n$
+    \vspace{1em}
+    
+2 modèles génératifs très connus, à base de réseaux de neurones
+    \vspace{1em}
+
+Objectif: apprendre les poids du réseau de sorte que $p_{\theta} \approx p_{\data}$
+    \vspace{1em}
+
+Diverses notions de distance entre mesures de probabilité: $f$-divergences et Integral Probability Metrics
+
+\end{frame}
+
+
+\begin{frame}{\secname}
+$$\mathcal L_{\text{VAE}} = \kl(q_\phi(z|x)||p(z)) - \mathbb{E}_{z \sim q_\phi}(\log p_\theta(x|z)) $$
+$\phi$ vecteur de paramètre de l'encodeur\newline
+$\theta$ vecteur de paramètre du décodeur
+    \vspace{1em}
+    
+Pour le MNIST: \newline
+encodeur + reparam $\sim \mathcal N_k(\mu, \text{diag}(\Sigma_{11},\ldots, \Sigma_{kk}))$\newline
+décodeur $\sim \mathcal B(y_i)$\newline
+prior sur $z$ $\sim \mathcal N_k(0, I_k)$ $\quad \implies$ Forme close pour la loss 
+\begin{figure}
+\includegraphics[scale=0.5]{fig3}
+\end{figure}
+\end{frame}
+
+
+\begin{frame}{\secname}
+$$\min_G \max_D E_{x\sim p_{\data}}(\log D(x)) +  E_{x\sim p_{\theta}}(\log[1-D(x)])$$
+$G$ générateur, $D$ discriminateur
+    \vspace{1em}
+    
+Plus simple à formuler que les VAE, mais plus difficile à entraîner: \textit{vanishing gradient} pendant les updates du générateur et du discriminateur + phénomène de \textit{mode collapse}
+
+\end{frame}
+
+
+\section{Résultats théoriques}
+
+\begin{frame}{\secname}
+Le GM peut générer des images de la forme $G(z), z \in \R^k $ 
+
+On va chercher $\hat{x} = \argmin_{x \in G(\R^k)} \norm{Ax - y}_2^2$
+
+
+\end{frame}
+
+\begin{frame}{\secname}
+    \begin{definition} (Set-Restricted Eigenvalue Condition)
+Soit $S \in \R^n$. Pour des paramètres $\gamma > 0$, $\delta \geq 0$ une matrice $A \in \R^{m \times n}$ satisfait les conditions S-REC $S-REC(S,\gamma,\delta)$ si 
+$$\forall x_1, x_2 \in S \norm{A(x_1 - x_2)} \geq \gamma \norm{x_1 - x_2} - \delta$$
+\end{definition}
+\end{frame}
+
+\begin{frame}{\secname}
+    \begin{lemma}
+Soit $G : \R^k \rightarrow \R^n$ $L$-Lipschitz. Soit $\alpha, r > 0$ et $$B^k(r) = \{ z \in \R^k | \norm{z} < r \}$$
+Si $m = \Omega(\frac{k}{\alpha^2} \log(\frac{Lr}{\delta}))$ alors $A$ vérifie $S-REC(G(B^k(r)), 1-\alpha, \delta)$ avec probabilité  $ \geq 1 - e^{- \Omega(\alpha^2 m)}$  
+\end{lemma}
+\end{frame}
+
+\begin{frame}{\secname}
+    \begin{lemma}
+Soit $G : \R^k \rightarrow \R^n$ un réseau de neurones à $d$ couches, où chaque couche est une transformation linéaire suivie d'une activation. On suppose qu'il y a au plus $c$ noeuds par couche, et que les fonctions d'activation sont linéaires par morceaux avec au plus deux morceaux. Soit $m = O(\frac{1}{\alpha^2} kd \log(c))$ pour un certain $\alpha <1$. Alors $A$ vérifie $S-REC(G(\R^k), 1-\alpha, 0)$ avec probabilité  $ \geq 1 - e^{- \Omega(\alpha^2 m)}$  
+
+\end{lemma}
+\end{frame}
+\begin{frame}
+\begin{lemma}
+Soit $A$ tiré d'une distribution qui vérifie les conditions $S-REC(S,\gamma, \delta)$ avec probabilté $\geq 1-p$ et telle que pour chaque $x \in \R^n$ fixé, $\norm{Ax} \leq 2 \norm{x}$, avec probabilté $1-p$. Pour tout $x^* \in \R^n$ et bruit $\eta$ soit $y = Ax^* + \eta$. Soit $\hat{x}$ minimisant approximativement $\norm{y - Ax}$ sur $x \in S$, ie:
+
+$$ \norm{y - A\hat{x} } \leq \min_{x  \in S} \norm{y - Ax} + \epsilon$$.
+
+Alors, $\norm{\hat{x} - x^*} \leq (\frac{4}{\gamma} +1) \min_{x \in S} \norm{x - x^*} + \frac{1}{\gamma}(2\norm{\eta} + \epsilon + \delta)$ avec probabilité 1-2p
+\end{lemma}
+\end{frame}
+
+
+
+
+
+\begin{frame}{\secname}
+    \begin{theorem}
+Soit $G : \R^k \rightarrow \R^n$ une modèle génératif d'un réseau de neurones à $d$ couches utilisant les activations ReLU. Soit $A \in \R^{m \times n}$ une matrice gaussienne pour $m = O(kd \log(n))$, réduite de sorte que $\forall i,j, A_{ij} \thicksim N(0, \frac{1}{m})$. Pour tout $x^* \in \R^n$ et toute observation $y = Ax^* + \eta$, soit $\hat{z}$ minimisant $\norm{y - AG(z)}_2$ à $\epsilon$ près de l'optimum. Alors avec probabilité $1-e^{-\Omega(m)}$ , 
+
+$$ \norm{G(\hat{z}) - x^*} \leq 6 \min_{z^* \in \R^k} \norm{G(z^*) - x^*}_2 +3\norm{\eta}_2 + 2\epsilon$$
+\end{theorem}
+\end{frame}
+
+
+\begin{frame}{\secname}
+    \begin{theorem}
+ Soit $G : \R^k \rightarrow \R^n$ une fonction $L$-Lipschitz. Soit $A \in \R^{m \times n}$ une matrice gaussienne pour  $m = O(k \log \frac{Lr}{\delta})$, réduite de sorte que $\forall i,j, A_{ij} \thicksim N(0, \frac{1}{m})$. Pour tout $x^* \in \R^n$ et toute observation $y = Ax^* + \eta$, soit $\hat{z}$ minimisant $\norm{y - AG(z)}_2$ à $\epsilon$ près de l'optimum sur les vecteurs tels que $\norm{\hat{z}}_2 \leq r$. Alors avec probabilité $1 - e^{- \Omega(m)}$
+ 
+ $$ \norm{G(\hat{z}) - x^*} \leq 6 \min_{z^* \in \R^k, \norm{z^*}_2 \leq r} \norm{G(z^*) - x^*}_2 +3\norm{\eta}_2 + 2\epsilon + 2\delta$$
+ 
+\end{theorem}
+
+\end{frame}
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Expériences}
+
+\begin{frame}{\secname}
+Méthode testée sur 2 datasets : MNIST et CelebA
+\vspace{2em}
+
+Comparaison avec la reconstruction par basis pursuit.
+\vspace{2em}
+
+Ajout d'une régularisation dans la fonction objectif : $$ \hat{z} = \argmin_{z\in \mathbb R^k} \norm{y - AG(z)}_2^2 + \lambda \norm{z}^2$$
+\vspace{2em}
+
+
+\end{frame}
+
+\begin{frame}{Comparaison sur MNIST: introduction}
+MNIST: dataset de 60.000 chiffres manuscrits, images en nuances de gris $28\times 28$ ($n=784)$. Suffisamment simple pour utiliser un VAE.\newline
+$G$ est pré-entraîné sur MNIST et fixé dans la suite.
+\vspace{1em}
+
+$$\operatorname{argmin}_z \|AG(z)-y\|_2^2 +\lambda \|z\|^2$$
+avec \begin{itemize}
+\item  $x^*\in \mathbb R^n$ image de départ.
+\item $m$ nombre de mesures 
+\item $A$ is an $m\times n$ matrice à coefficients $\mathcal N(0,\frac 1m)$
+\item $\eta \in \mathbb R^m$ bruit gaussien à coefficients $\mathcal N(0,\frac{0.1}{\sqrt m})$
+\item $y = Ax^* + \eta \in \mathbb R^m$ vecteur des mesures
+\end{itemize}
+\vspace{1em}
+
+Méthode: $10$ initialisations aléatoires de $z$, pour chacune $1000$ itérations de descente de gradient, puis renvoyer le $z$ avec la plus petite loss.
+    
+\end{frame}
+
+\begin{frame}{Comparaison sur MNIST: introduction}
+\begin{figure}
+\includegraphics[scale=0.5]{vae}
+\caption{VAE entrainé pendant $4$ epochs sur MNIST. Résultats du decoder sur $64$ bruits gaussiens} 
+\end{figure}
+\end{frame}
+
+\begin{frame}{Comparaison sur MNIST: résultats}
+\begin{figure}
+\includegraphics[scale=0.37]{100meas}
+\caption{Reconstruction par VAE avec 100 mesures} 
+\end{figure}
+\end{frame}
+
+\begin{frame}{Comparaison sur MNIST: résultats}
+\begin{figure}
+\includegraphics[scale=0.37]{25meas}
+\caption{Reconstruction par VAE avec 25 mesures} 
+\end{figure}
+\end{frame}
+
+\begin{frame}{Comparaison sur MNIST: résultats}
+\begin{figure}
+\includegraphics[scale=0.37]{lasso300}
+\caption{Reconstruction par basis pursuit avec 300 mesures} 
+\end{figure}
+\end{frame}
+
+\begin{frame}{Comparaison sur MNIST: résultats}
+\begin{figure}
+\includegraphics[scale=0.37]{lasso100}
+\caption{Reconstruction par basis pursuit avec 100 mesures} 
+\end{figure}
+\end{frame}
+
+\begin{frame}{Comparaison sur MNIST: résultats}
+Le module \texttt{Autograd} de Pytorch permet d'écrire un code nettement plus clair et concis que celui des auteurs.
+\vspace{2em}
+
+Contrairement aux observations de l'article, la régularisation dégrade clairement la reconstruction.
+
+\vspace{2em}
+L'erreur de reconstruction $\|G(\hat z) - x^*\|^2$ n'est pas une métrique pertinente: distance entre vecteurs, pas entre images. Ne dit rien sur la qualité des images générées.
+\end{frame}
+
+
+\begin{frame}{Comparaison sur CelebA: introduction}
+CelebA: dataset de 200.000 visages de célébrités, images en couleurs $64\times 64\times 3$. Auteurs utilisent un DCGAN.\newline
+$G$ est pré-entraîné sur CelebA et fixé dans la suite.
+\vspace{1em}
+
+Méthode: $2$ initialisations aléatoires de $z$, pour chacune $500$ itérations de descente de gradient, puis renvoyer le $z$ avec la plus petite loss.
+\vspace{1em}
+
+Basis pursuit: chaque channel est envoyé dans la base DCT ou dans une base d'ondelettes. La norme $1$ est appliquée à ces coefficients, channel par channel.
+\end{frame}
+
+
+\begin{frame}{Comparaison sur CelebA: résultats des auteurs}
+\begin{figure}
+\includegraphics[scale=0.4]{celeb}
+\caption{Reconstructions avec 500 mesures} 
+\end{figure}
+\end{frame}
+
+\begin{frame}{Sources d'erreurs}
+
+3 sources possibles :
+
+\begin{enumerate}[label=(\roman*)]
+    \item Erreur de représentation
+    \item Erreur de mesure
+    \item Erreur d'optimisation
+\end{enumerate}
+
+
+
+\vspace{2em}
+Vraisemblablement, (i) $ \gg$ (ii), (iii)
+    
+\end{frame}
+
+
+\begin{frame}{Estimation des erreurs}
+
+2 expériences:
+\begin{enumerate}[label=(\Roman*)]
+    \item Erreur de représentation = 0 ($x^* \in G(R^d)$) 
+    
+    $\Rightarrow$ excellents résultats
+    \item Erreur de mesure = 0 ($A = Id$), comparé à un model avec erreurs de mesures ($A$ quelconque) : Résultats similaires.
+\end{enumerate}
+    
+\end{frame}
+
+
+\begin{frame}{Conclusion}
+
+On résout le problème de compressed sensing sans utiliser la sparsité
+
+\vspace{2em}
+
+Bons résultats avec peu de mesures mais saturation rapide. Cependant perspectives d'amélioration avec GM plus performants.
+
+\vspace{2em}
+$\Rightarrow$ meilleures performances mais temps d'entraînement beaucoup plus long.
+    
+\end{frame}
+
+\end{document}
